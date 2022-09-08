@@ -24,7 +24,7 @@ fn main() {
 struct MouseScreenPosition(Option<Vec2>);
 
 #[derive(Default)]
-struct MouseWorldPosition(Option<Vec2>);
+struct MouseWorldPosition(Option<Vec3>);
 
 #[derive(Component)]
 struct MainCamera;
@@ -115,9 +115,7 @@ fn move_movement_marker_on_click(
 ) {
     if buttons.just_released(MouseButton::Right) {
         let mut target_tranform = target_query.single_mut();
-        target_tranform.translation = mouse_world_position.0
-            .map(|m| m.extend(0.))
-            .unwrap_or(target_tranform.translation);
+        target_tranform.translation = mouse_world_position.0.unwrap_or(target_tranform.translation);
 
         println!("Moved target to {:?}", target_tranform.translation);
     }
@@ -145,7 +143,7 @@ fn track_mouse(
         let world_pos: Vec2 = world_pos.truncate();
 
         mouse_screen_coords.0 = Some(screen_pos);
-        mouse_world_coords.0 = Some(world_pos);
+        mouse_world_coords.0 = Some(world_pos.extend(0.));
     } else {
         mouse_screen_coords.0 = None;
         mouse_world_coords.0 = None;
