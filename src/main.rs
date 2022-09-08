@@ -49,7 +49,6 @@ fn setup(mut commands: Commands, asset_server: Res<AssetServer>) {
             zoom_to_cursor: true,
             min_scale: 1.,
             max_scale: Some(40.),
-            ..default()
         });
 
     // Spawn the controllable spaceship
@@ -60,11 +59,12 @@ fn setup(mut commands: Commands, asset_server: Res<AssetServer>) {
         .insert(Acceleration::from_linear(Vec3::ZERO))
         .insert(MaxAcceleration(10.))
         .insert(CollisionShape::Capsule {
-            radius: 50.0,
-            half_segment: 50.0,
+            radius: 25.0,
+            half_segment: 25.0,
         })
         .insert_bundle(SpriteBundle {
             texture: asset_server.load("ship.png"),
+            transform: Transform::from_scale(Vec3::ONE / 3.),
             ..default()
         });
 
