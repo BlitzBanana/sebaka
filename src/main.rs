@@ -6,13 +6,16 @@ use heron::*;
 fn main() {
     App::new()
         .insert_resource(Gravity::from(Vec3::new(0., 0., 0.)))
+        .insert_resource(ClearColor(Color::rgb(0.0196, 0.0235, 0.0235)))
+        .insert_resource(MouseScreenPosition(None))
+        .insert_resource(MouseWorldPosition(None))
         .add_plugins(DefaultPlugins)
         .add_plugin(PanCamPlugin::default())
         .add_plugin(DebugLinesPlugin::default())
         .add_plugin(PhysicsPlugin::default())
         .add_startup_system(setup)
         .add_system(movement)
-        .add_system(seek_movement_marker)
+        .add_system(arrive_to_movement_marker)
         .add_system(track_mouse)
         .add_system(move_movement_marker_on_click)
         .add_system(debug_velocity.chain(debug_acceleration))
@@ -57,13 +60,13 @@ fn setup(mut commands: Commands, asset_server: Res<AssetServer>) {
         .insert(Velocity::from_linear(Vec3::ZERO))
         .insert(MaxVelocity(500.))
         .insert(Acceleration::from_linear(Vec3::ZERO))
-        .insert(MaxAcceleration(10.))
+        .insert(MaxAcceleration(50.))
         .insert(CollisionShape::Capsule {
             radius: 25.0,
             half_segment: 25.0,
         })
         .insert_bundle(SpriteBundle {
-            texture: asset_server.load("ship.png"),
+            texture: asset_server.load("ship3.png"),
             transform: Transform::from_scale(Vec3::ONE / 3.),
             ..default()
         });
@@ -72,10 +75,6 @@ fn setup(mut commands: Commands, asset_server: Res<AssetServer>) {
     commands.spawn()
         .insert_bundle((Transform::default(), GlobalTransform::default()))
         .insert(MovementMarker);
-
-    // Spawn resources related to mouse position tracking
-    commands.insert_resource(MouseScreenPosition(None));
-    commands.insert_resource(MouseWorldPosition(None));
 }
 
 /// Update position according to velocity and velocity according to acceleration
@@ -87,9 +86,10 @@ fn movement(mut query: Query<(&mut Transform, &mut Velocity, &Acceleration)>, ti
 }
 
 /// Update acceleration according to movement marker position
-fn seek_movement_marker(
+fn arrive_to_movement_marker(
     mut query: Query<(&Transform, &Velocity, Option<&MaxVelocity>, &mut Acceleration, Option<&MaxAcceleration>)>,
     target_query: Query<&Transform, With<MovementMarker>>,
+    time: Res<Time>,
 ) {
     let target_tranform = target_query.single();
 
@@ -100,7 +100,22 @@ fn seek_movement_marker(
         acceleration.linear = if distance > f32::EPSILON {
             let max_velocity = max_velocity.map(|m| m.0).unwrap_or(f32::INFINITY);
             let max_acceleration = max_acceleration.map(|m| m.0).unwrap_or(f32::INFINITY);
-            (difference.normalize_or_zero() * max_velocity - velocity.linear).clamp_length_max(max_acceleration)
+
+            let stop_distance = (velocity.linear.length_squared().powi(2)) / (2. * max_acceleration);
+            let distance_in_next_frame = (velocity.linear * time.delta_seconds()).length_squared();
+            if distance - stop_distance < distance_in_next_frame * 2. {
+                // Decelerate before it's too late to stop at the target
+                let acceleration = difference.normalize_or_zero() * (max_velocity * (distance / stop_distance)) - velocity.linear * 2.;
+                acceleration.clamp_length_max(max_acceleration)
+            } else if distance < 40. {
+                // Kill the velocity, target reached
+                let acceleration = velocity.linear * -1.;
+                acceleration.clamp_length_max(max_acceleration)
+            } else {
+                // Go torward the target as fast as posible
+                let acceleration = difference.normalize_or_zero() * max_velocity - velocity.linear;
+                acceleration.clamp_length_max(max_acceleration)
+            }
         } else {
             Vec3::ZERO
         };
