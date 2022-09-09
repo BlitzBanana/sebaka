@@ -66,7 +66,7 @@ fn setup(mut commands: Commands, asset_server: Res<AssetServer>) {
             half_segment: 25.0,
         })
         .insert_bundle(SpriteBundle {
-            texture: asset_server.load("ship3.png"),
+            texture: asset_server.load("ship47.png"),
             transform: Transform::from_scale(Vec3::ONE / 3.),
             ..default()
         });
