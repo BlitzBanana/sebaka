@@ -5,6 +5,7 @@ edition = "2021"
 
 [dependencies]
 bevy = { version = "0.8" }
-heron = { version = "4", features = ["2d"] }
+heron = { version = "4", features = ["2d", "debug-2d", "enhanced-determinism"] }
 bevy_pancam = { version = "0.6.1" }
 bevy_prototype_debug_lines = { version = "0.8.1" }
+bevy_kira_audio = { version = "0.12.0" }

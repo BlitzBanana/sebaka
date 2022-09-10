@@ -1,20 +1,37 @@
-use bevy::{prelude::*, render::camera::RenderTarget};
-use bevy_pancam::{PanCamPlugin, PanCam};
+use std::f32::consts::PI;
+
+use bevy::{
+    prelude::*,
+    render::{camera::RenderTarget, texture::ImageSettings},
+    window::WindowMode,
+};
+use bevy_kira_audio::prelude::*;
+use bevy_pancam::{PanCam, PanCamPlugin};
 use bevy_prototype_debug_lines::*;
 use heron::*;
 
 fn main() {
+    let window = WindowDescriptor {
+        title: "Sebaka".to_string(),
+        mode: WindowMode::BorderlessFullscreen,
+        ..Default::default()
+    };
+
     App::new()
+        .insert_resource(window)
+        .insert_resource(ImageSettings::default_nearest())
         .insert_resource(Gravity::from(Vec3::new(0., 0., 0.)))
         .insert_resource(ClearColor(Color::rgb(0.0196, 0.0235, 0.0235)))
         .insert_resource(MouseScreenPosition(None))
         .insert_resource(MouseWorldPosition(None))
         .add_plugins(DefaultPlugins)
+        .add_plugin(AudioPlugin)
         .add_plugin(PanCamPlugin::default())
         .add_plugin(DebugLinesPlugin::default())
         .add_plugin(PhysicsPlugin::default())
         .add_startup_system(setup)
-        .add_system(movement)
+        .add_startup_system(start_ambient_music)
+        // .add_system(orientation)
         .add_system(arrive_to_movement_marker)
         .add_system(track_mouse)
         .add_system(move_movement_marker_on_click)
@@ -43,7 +60,8 @@ struct MaxAcceleration(f32);
 
 fn setup(mut commands: Commands, asset_server: Res<AssetServer>) {
     // Spawn the main camera
-    commands.spawn()
+    commands
+        .spawn()
         .insert_bundle(Camera2dBundle::default())
         .insert(MainCamera)
         .insert(PanCam {
@@ -55,67 +73,133 @@ fn setup(mut commands: Commands, asset_server: Res<AssetServer>) {
         });
 
     // Spawn the controllable spaceship
-    commands.spawn()
+    commands
+        .spawn()
         .insert(RigidBody::Dynamic)
         .insert(Velocity::from_linear(Vec3::ZERO))
-        .insert(MaxVelocity(500.))
+        // .insert(MaxVelocity(2000.))
         .insert(Acceleration::from_linear(Vec3::ZERO))
-        .insert(MaxAcceleration(50.))
+        // .insert(MaxAcceleration(25.))
         .insert(CollisionShape::Capsule {
-            radius: 25.0,
+            radius: 100.0,
             half_segment: 25.0,
         })
         .insert_bundle(SpriteBundle {
-            texture: asset_server.load("ship47.png"),
-            transform: Transform::from_scale(Vec3::ONE / 3.),
+            texture: asset_server.load("ship101.png"),
+            ..default()
+        });
+
+    // Spawn some asteroids
+    commands
+        .spawn()
+        .insert(RigidBody::Static)
+        .insert(CollisionShape::Sphere { radius: 105. })
+        .insert_bundle(SpriteBundle {
+            texture: asset_server.load("asteroid.png"),
+            transform: Transform::from_translation(Vec3::new(0., 2000., 0.)),
             ..default()
         });
 
     // Spawn the movement marker, one and only one !
-    commands.spawn()
-        .insert_bundle((Transform::default(), GlobalTransform::default()))
+    commands
+        .spawn()
+        .insert_bundle(TransformBundle::default())
         .insert(MovementMarker);
 }
 
-/// Update position according to velocity and velocity according to acceleration
-fn movement(mut query: Query<(&mut Transform, &mut Velocity, &Acceleration)>, time: Res<Time>) {
-    for (mut transform, mut velocity, acceleration) in query.iter_mut() {
-        velocity.linear += acceleration.linear * time.delta_seconds();
-        transform.translation += velocity.linear * time.delta_seconds();
+fn start_ambient_music(asset_server: Res<AssetServer>, audio: Res<bevy_kira_audio::Audio>) {
+    audio
+        .play(asset_server.load("ambient.ogg"))
+        .looped()
+        .with_volume(0.3);
+}
+
+/// Update orientation according to velocity vector (not really the desired behaviour, but it will do for now)
+fn orientation(mut query: Query<(&mut Transform, &Velocity)>) {
+    for (mut transform, velocity) in query.iter_mut() {
+        if velocity.linear.length_squared() > f32::EPSILON {
+            let angle = {
+                // Use Vec2 because we cannot tell apart clockwise 🕓 and anti-clockwise 🕗 angles in 3D
+                let angle = Vec2::Y.angle_between(velocity.linear.truncate());
+                // The delta angle can be negative (anti-clockwise), in this case we should add one complete turn (2PI) to get back a clockwise angle
+                if angle.is_sign_negative() {
+                    2. * PI + angle // Anti-clockwise to Clockwise
+                } else {
+                    angle // Already clockwise
+                }
+            };
+            transform.rotation = Quat::from_rotation_z(angle);
+        }
     }
 }
 
 /// Update acceleration according to movement marker position
 fn arrive_to_movement_marker(
-    mut query: Query<(&Transform, &Velocity, Option<&MaxVelocity>, &mut Acceleration, Option<&MaxAcceleration>)>,
+    mut query: Query<(
+        &Transform,
+        &Velocity,
+        Option<&MaxVelocity>,
+        &mut Acceleration,
+        Option<&MaxAcceleration>,
+    )>,
     target_query: Query<&Transform, With<MovementMarker>>,
     time: Res<Time>,
 ) {
     let target_tranform = target_query.single();
 
-    for (transform, velocity, max_velocity, mut acceleration, max_acceleration) in query.iter_mut() {
+    for (transform, velocity, max_velocity, mut acceleration, max_acceleration) in query.iter_mut()
+    {
         let difference = target_tranform.translation - transform.translation;
-        let distance = difference.length_squared();
+        let distance = difference.length();
 
         acceleration.linear = if distance > f32::EPSILON {
-            let max_velocity = max_velocity.map(|m| m.0).unwrap_or(f32::INFINITY);
-            let max_acceleration = max_acceleration.map(|m| m.0).unwrap_or(f32::INFINITY);
+            let max_velocity = max_velocity.map(|m| m.0).unwrap_or(5000.);
+            let max_acceleration = max_acceleration.map(|m| m.0).unwrap_or(200.);
+            let speed = velocity.linear.length();
+            let stop_distance = speed.powi(2) / (2. * max_acceleration);
+            let missalignement =
+                (90. - (difference.angle_between(velocity.linear) * (180. / PI) - 90.).abs()).abs()
+                    / 90.
+                    * 100.;
 
-            let stop_distance = (velocity.linear.length_squared().powi(2)) / (2. * max_acceleration);
-            let distance_in_next_frame = (velocity.linear * time.delta_seconds()).length_squared();
-            if distance - stop_distance < distance_in_next_frame * 2. {
+            (if distance - stop_distance < speed * time.delta_seconds() {
                 // Decelerate before it's too late to stop at the target
-                let acceleration = difference.normalize_or_zero() * (max_velocity * (distance / stop_distance)) - velocity.linear * 2.;
-                acceleration.clamp_length_max(max_acceleration)
-            } else if distance < 40. {
+                println!(
+                    "▼ {:05.0}m/s, {:04.0}m/s-2, {:03.0}°",
+                    speed,
+                    acceleration.linear.length(),
+                    missalignement
+                );
+                (difference.normalize_or_zero() / 2. - velocity.linear.normalize_or_zero())
+                    * max_velocity
+            } else if missalignement > 2. {
+                println!(
+                    "🗘 {:05.0}m/s, {:04.0}m/s-2, {:03.0}°",
+                    speed,
+                    acceleration.linear.length(),
+                    missalignement
+                );
+                (difference - velocity.linear * 15.).normalize_or_zero() * max_velocity
+            } else if distance < 30. {
                 // Kill the velocity, target reached
-                let acceleration = velocity.linear * -1.;
-                acceleration.clamp_length_max(max_acceleration)
+                println!(
+                    "⏹ {:05.0}m/s, {:04.0}m/s-2, {:03.0}°",
+                    speed,
+                    acceleration.linear.length(),
+                    missalignement
+                );
+                velocity.linear * -1.
             } else {
                 // Go torward the target as fast as posible
-                let acceleration = difference.normalize_or_zero() * max_velocity - velocity.linear;
-                acceleration.clamp_length_max(max_acceleration)
-            }
+                println!(
+                    "▲ {:05.0}m/s, {:04.0}m/s-2, {:03.0}°",
+                    speed,
+                    acceleration.linear.length(),
+                    missalignement
+                );
+                difference.normalize_or_zero() * max_velocity - velocity.linear
+            })
+            .clamp_length_max(max_acceleration)
         } else {
             Vec3::ZERO
         };
@@ -130,7 +214,9 @@ fn move_movement_marker_on_click(
 ) {
     if buttons.just_released(MouseButton::Right) {
         let mut target_tranform = target_query.single_mut();
-        target_tranform.translation = mouse_world_position.0.unwrap_or(target_tranform.translation);
+        target_tranform.translation = mouse_world_position
+            .0
+            .unwrap_or(target_tranform.translation);
 
         println!("Moved target to {:?}", target_tranform.translation);
     }
@@ -141,7 +227,7 @@ fn track_mouse(
     windows: Res<Windows>,
     query: Query<(&Camera, &GlobalTransform), With<MainCamera>>,
     mut mouse_screen_coords: ResMut<MouseScreenPosition>,
-    mut mouse_world_coords: ResMut<MouseWorldPosition>
+    mut mouse_world_coords: ResMut<MouseWorldPosition>,
 ) {
     let (camera, camera_transform) = query.single();
     let window = if let RenderTarget::Window(id) = camera.target {
@@ -177,13 +263,26 @@ fn debug_acceleration(query: Query<(&Transform, &Acceleration)>, mut lines: ResM
     for (transform, acceleration) in query.iter() {
         let start = transform.translation;
         let end = start + acceleration.linear;
-        lines.line_colored(start, end, 0., Color::BLUE);
+        lines.line_colored(start, start + (start - end), 0., Color::BLUE);
     }
 }
 
 /// Draw a crosshair on MovementMarker position
-fn debug_movement_marker(target_query: Query<&Transform, With<MovementMarker>>, mut lines: ResMut<DebugLines>) {
+fn debug_movement_marker(
+    target_query: Query<&Transform, With<MovementMarker>>,
+    mut lines: ResMut<DebugLines>,
+) {
     let target_tranform = target_query.single();
-    lines.line_colored(target_tranform.translation + Vec3::NEG_X * 10., target_tranform.translation + Vec3::X * 10., 0., Color::RED);
-    lines.line_colored(target_tranform.translation + Vec3::NEG_Y * 10., target_tranform.translation + Vec3::Y * 10., 0., Color::RED);
+    lines.line_colored(
+        target_tranform.translation + Vec3::NEG_X * 10.,
+        target_tranform.translation + Vec3::X * 10.,
+        0.,
+        Color::RED,
+    );
+    lines.line_colored(
+        target_tranform.translation + Vec3::NEG_Y * 10.,
+        target_tranform.translation + Vec3::Y * 10.,
+        0.,
+        Color::RED,
+    );
 }
