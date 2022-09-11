@@ -263,15 +263,7 @@ fn arrive_to_movement_marker(
                 );
                 (difference.normalize_or_zero() / 2. - velocity.linear.normalize_or_zero())
                     * max_velocity
-            } else if missalignement > 2. {
-                println!(
-                    "🗘 {:05.0}m/s, {:04.0}m/s-2, {:03.0}°",
-                    speed,
-                    acceleration.linear.length(),
-                    missalignement
-                );
-                (difference - velocity.linear * 15.).normalize_or_zero() * max_velocity
-            } else if distance < 80. {
+            }  else if distance < 30. {
                 // Kill the velocity, target reached
                 println!(
                     "⏹ {:05.0}m/s, {:04.0}m/s-2, {:03.0}°",
@@ -280,7 +272,16 @@ fn arrive_to_movement_marker(
                     missalignement
                 );
                 velocity.linear * -1.
-            } else {
+            } else if missalignement > 2.0 {
+                // Align with the target if needed
+                println!(
+                    "🗘 {:05.0}m/s, {:04.0}m/s-2, {:03.0}°",
+                    speed,
+                    acceleration.linear.length(),
+                    missalignement
+                );
+                (difference - velocity.linear * 15.).normalize_or_zero() * max_velocity
+            }else {
                 // Go torward the target as fast as posible
                 println!(
                     "▲ {:05.0}m/s, {:04.0}m/s-2, {:03.0}°",
