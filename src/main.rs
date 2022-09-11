@@ -1,4 +1,4 @@
-use std::f32::consts::PI;
+use std::{f32::consts::PI, ops::Mul};
 
 use bevy::{
     prelude::*,
@@ -45,6 +45,7 @@ fn main() {
         .add_startup_system(setup)
         .add_startup_system(start_ambient_music)
         .add_system(orientation)
+        .add_system(thruster_power)
         .add_system(arrive_to_movement_marker)
         .add_system(track_mouse)
         .add_system(move_movement_marker_on_click)
@@ -65,6 +66,12 @@ struct MainCamera;
 
 #[derive(Component)]
 struct MovementMarker;
+
+#[derive(Component)]
+struct Spaceship;
+
+#[derive(Component)]
+struct ThrusterEffect;
 
 #[derive(Component)]
 struct MaxVelocity(f32);
@@ -94,6 +101,7 @@ fn setup(
     commands
         .spawn()
         .insert_bundle(TransformBundle::default())
+        .insert(Spaceship)
         .insert(RigidBody::Dynamic)
         .insert(Velocity::from_linear(Vec3::ZERO))
         .insert(Acceleration::from_linear(Vec3::ZERO))
@@ -117,7 +125,7 @@ fn setup(
                     speed: 250.0.into(),
                     dimension: ShapeDimension::Volume,
                     base_radius: 25.,
-                    top_radius: 5.,
+                    top_radius: 1.,
                     height: 50.,
                 })
                 .init(ParticleLifetimeModifier { lifetime: 1.5 })
@@ -156,7 +164,7 @@ fn setup(
                 effect: ParticleEffect::new(effect).with_z_layer_2d(Some(0.1)),
                 transform,
                 ..default()
-            });
+            }).insert(ThrusterEffect);
         });
 
     // Spawn some asteroids
@@ -199,6 +207,20 @@ fn orientation(mut query: Query<(&mut Transform, &Velocity)>) {
                 }
             };
             transform.rotation = Quat::from_rotation_z(angle);
+        }
+    }
+}
+
+/// A dumb system to make thruster particule emiter rate match acceleration of ships
+fn thruster_power(
+    q_spaceship: Query<(&Acceleration, &Children), With<Spaceship>>,
+    mut q_thruster: Query<&mut ParticleEffect, With<ThrusterEffect>>,
+) {
+    for (&acceleration, children) in &q_spaceship {
+        for &child in children {
+            if let Ok(mut effect) = q_thruster.get_mut(child) {
+                effect.set_spawner(Spawner::rate((acceleration.linear.length() * 8.).into()))
+            }
         }
     }
 }
@@ -249,7 +271,7 @@ fn arrive_to_movement_marker(
                     missalignement
                 );
                 (difference - velocity.linear * 15.).normalize_or_zero() * max_velocity
-            } else if distance < 30. {
+            } else if distance < 80. {
                 // Kill the velocity, target reached
                 println!(
                     "⏹ {:05.0}m/s, {:04.0}m/s-2, {:03.0}°",
