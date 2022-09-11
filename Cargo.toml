@@ -9,3 +9,4 @@ heron = { version = "4", features = ["2d", "debug-2d", "enhanced-determinism"] }
 bevy_pancam = { version = "0.6.1" }
 bevy_prototype_debug_lines = { version = "0.8.1" }
 bevy_kira_audio = { version = "0.12.0" }
+bevy_hanabi = { git = "https://github.com/djeedai/bevy_hanabi", default-features = false, features = [ "2d" ] }

@@ -2,13 +2,19 @@ use std::f32::consts::PI;
 
 use bevy::{
     prelude::*,
-    render::{camera::RenderTarget, texture::ImageSettings},
+    render::{
+        camera::RenderTarget, render_resource::WgpuFeatures, settings::WgpuSettings,
+        texture::ImageSettings,
+    },
     window::WindowMode,
 };
+use bevy_hanabi::*;
 use bevy_kira_audio::prelude::*;
 use bevy_pancam::{PanCam, PanCamPlugin};
 use bevy_prototype_debug_lines::*;
 use heron::*;
+
+mod steering;
 
 fn main() {
     let window = WindowDescriptor {
@@ -17,8 +23,14 @@ fn main() {
         ..Default::default()
     };
 
+    let mut options = WgpuSettings::default();
+    options
+        .features
+        .set(WgpuFeatures::VERTEX_WRITABLE_STORAGE, true);
+
     App::new()
         .insert_resource(window)
+        .insert_resource(options)
         .insert_resource(ImageSettings::default_nearest())
         .insert_resource(Gravity::from(Vec3::new(0., 0., 0.)))
         .insert_resource(ClearColor(Color::rgb(0.0196, 0.0235, 0.0235)))
@@ -29,14 +41,16 @@ fn main() {
         .add_plugin(PanCamPlugin::default())
         .add_plugin(DebugLinesPlugin::default())
         .add_plugin(PhysicsPlugin::default())
+        .add_plugin(HanabiPlugin)
         .add_startup_system(setup)
         .add_startup_system(start_ambient_music)
-        // .add_system(orientation)
+        .add_system(orientation)
         .add_system(arrive_to_movement_marker)
         .add_system(track_mouse)
         .add_system(move_movement_marker_on_click)
         .add_system(debug_velocity.chain(debug_acceleration))
         .add_system(debug_movement_marker)
+        .add_system(bevy::window::close_on_esc)
         .run();
 }
 
@@ -58,7 +72,11 @@ struct MaxVelocity(f32);
 #[derive(Component)]
 struct MaxAcceleration(f32);
 
-fn setup(mut commands: Commands, asset_server: Res<AssetServer>) {
+fn setup(
+    mut commands: Commands,
+    asset_server: Res<AssetServer>,
+    mut effects: ResMut<Assets<EffectAsset>>,
+) {
     // Spawn the main camera
     commands
         .spawn()
@@ -68,37 +86,89 @@ fn setup(mut commands: Commands, asset_server: Res<AssetServer>) {
             grab_buttons: vec![MouseButton::Left],
             enabled: true,
             zoom_to_cursor: true,
-            min_scale: 1.,
+            min_scale: 0.01,
             max_scale: Some(40.),
         });
 
     // Spawn the controllable spaceship
     commands
         .spawn()
+        .insert_bundle(TransformBundle::default())
         .insert(RigidBody::Dynamic)
         .insert(Velocity::from_linear(Vec3::ZERO))
-        // .insert(MaxVelocity(2000.))
         .insert(Acceleration::from_linear(Vec3::ZERO))
-        // .insert(MaxAcceleration(25.))
         .insert(CollisionShape::Capsule {
             radius: 100.0,
             half_segment: 25.0,
         })
         .insert_bundle(SpriteBundle {
-            texture: asset_server.load("ship101.png"),
+            texture: asset_server.load("ship666.png"),
             ..default()
+        })
+        .with_children(|builder| {
+            let effect = effects.add(
+                EffectAsset {
+                    name: "thruster".into(),
+                    capacity: 32768,
+                    spawner: Spawner::rate(1000.0.into()),
+                    ..Default::default()
+                }
+                .init(PositionCone3dModifier {
+                    speed: 250.0.into(),
+                    dimension: ShapeDimension::Volume,
+                    base_radius: 25.,
+                    top_radius: 5.,
+                    height: 50.,
+                })
+                .init(ParticleLifetimeModifier { lifetime: 1.5 })
+                .render(SizeOverLifetimeModifier {
+                    gradient: {
+                        let mut gradient = Gradient::new();
+                        gradient.add_key(0.00, Vec2::splat(6.8));
+                        gradient.add_key(0.05, Vec2::splat(4.5));
+                        gradient.add_key(0.10, Vec2::splat(1.2));
+                        gradient.add_key(0.15, Vec2::splat(0.2));
+                        gradient.add_key(0.25, Vec2::splat(8.5));
+                        gradient.add_key(1.00, Vec2::splat(0.5));
+                        gradient
+                    },
+                })
+                .render(ColorOverLifetimeModifier {
+                    gradient: {
+                        let mut gradient = Gradient::new();
+                        gradient.add_key(0.00, Vec4::new(1.0, 0.8, 0.3, 1.0));
+                        gradient.add_key(0.03, Vec4::new(1.0, 0.66, 0.0, 1.0));
+                        gradient.add_key(0.10, Vec4::new(1.0, 0.55, 0.0, 0.8));
+                        gradient.add_key(0.15, Vec4::new(0.0, 0.0, 0.0, 0.0));
+                        gradient.add_key(0.25, Vec4::new(0.56, 0.52, 0.51, 0.8));
+                        gradient.add_key(1.00, Vec4::new(0.56, 0.52, 0.51, 0.0));
+                        gradient
+                    },
+                }),
+            );
+
+            let mut transform = Transform::default();
+            transform.rotation = Quat::from_axis_angle(Vec3::Z, PI);
+            transform.translation = Vec3::new(0., -160., 0.);
+
+            builder.spawn_bundle(ParticleEffectBundle {
+                // Assign the Z layer so it appears in the egui inspector and can be modified at runtime
+                effect: ParticleEffect::new(effect).with_z_layer_2d(Some(0.1)),
+                transform,
+                ..default()
+            });
         });
 
     // Spawn some asteroids
-    commands
-        .spawn()
-        .insert(RigidBody::Static)
-        .insert(CollisionShape::Sphere { radius: 105. })
-        .insert_bundle(SpriteBundle {
-            texture: asset_server.load("asteroid.png"),
-            transform: Transform::from_translation(Vec3::new(0., 2000., 0.)),
-            ..default()
-        });
+    // commands
+    //     .spawn()
+    //     .insert(RigidBody::Static)
+    //     .insert(CollisionShape::Sphere { radius: 105. })
+    //     .insert_bundle(SpriteBundle {
+    //         texture: asset_server.load("asteroid.png"),
+    //         transform: Transform::from_translation(Vec3::new(0., 2000., 0.)),
+    //         ..default()
+    //     });
 
     // Spawn the movement marker, one and only one !
     commands
@@ -116,7 +186,7 @@ fn start_ambient_music(asset_server: Res<AssetServer>, audio: Res<bevy_kira_audi
 
 /// Update orientation according to velocity vector (not really the desired behaviour, but it will do for now)
 fn orientation(mut query: Query<(&mut Transform, &Velocity)>) {
-    for (mut transform, velocity) in query.iter_mut() {
+    for (mut transform, velocity) in &mut query {
         if velocity.linear.length_squared() > f32::EPSILON {
             let angle = {
                 // Use Vec2 because we cannot tell apart clockwise 🕓 and anti-clockwise 🕗 angles in 3D
@@ -147,8 +217,7 @@ fn arrive_to_movement_marker(
 ) {
     let target_tranform = target_query.single();
 
-    for (transform, velocity, max_velocity, mut acceleration, max_acceleration) in query.iter_mut()
-    {
+    for (transform, velocity, max_velocity, mut acceleration, max_acceleration) in &mut query {
         let difference = target_tranform.translation - transform.translation;
         let distance = difference.length();
 
@@ -252,7 +321,7 @@ fn track_mouse(
 }
 
 fn debug_velocity(query: Query<(&Transform, &Velocity)>, mut lines: ResMut<DebugLines>) {
-    for (transform, velocity) in query.iter() {
+    for (transform, velocity) in &query {
         let start = transform.translation;
         let end = start + velocity.linear;
         lines.line_colored(start, end, 0., Color::YELLOW);
@@ -260,7 +329,7 @@ fn debug_velocity(query: Query<(&Transform, &Velocity)>, mut lines: ResMut<Debug
 }
 
 fn debug_acceleration(query: Query<(&Transform, &Acceleration)>, mut lines: ResMut<DebugLines>) {
-    for (transform, acceleration) in query.iter() {
+    for (transform, acceleration) in &query {
         let start = transform.translation;
         let end = start + acceleration.linear;
         lines.line_colored(start, start + (start - end), 0., Color::BLUE);
