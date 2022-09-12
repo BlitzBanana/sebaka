@@ -2,18 +2,18 @@ use bevy::prelude::*;
 use heron::*;
 
 #[derive(Component)]
-enum SteeringBehaviour {
+pub enum SteeringBehaviour {
     /// Go to the target at full speed
-    SEEK { target: Entity },
+    Seek { target: Entity },
 
     /// Go to the target, aiming a matching speed with the target on arrival
-    ARRIVE {
+    Arrive {
         target: Entity,
         final_angle: Option<AxisAngle>,
     },
 
     /// Go to the target at full speed, predicting target movement
-    PERSUE {
+    Persue {
         target: Entity,
         min_distance: Option<f32>,
     },
@@ -44,7 +44,7 @@ enum SteeringBehaviour {
 }
 
 #[derive(Component)]
-enum SteeringLimit {
+pub enum SteeringLimit {
     LinearVelocity { min: f32, max: f32 },
     LinearAcceleration { min: f32, max: f32 },
     AngularVelocity { min: f32, max: f32 },
