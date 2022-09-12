@@ -233,8 +233,7 @@ fn setup(
             builder
                 .spawn_bundle(ParticleEffectBundle {
                     // Assign the Z layer so it appears in the egui inspector and can be modified at runtime
-                    effect: ParticleEffect::new(secondary_effect)
-                        .with_z_layer_2d(Some(0.1)),
+                    effect: ParticleEffect::new(secondary_effect).with_z_layer_2d(Some(0.1)),
                     transform,
                     ..default()
                 })
@@ -283,7 +282,7 @@ fn setup(
                     },
                 }),
             );
-                
+
             let mut transform = Transform::default();
             transform.rotation = Quat::from_axis_angle(Vec3::Z, 0.);
             transform.translation = Vec3::new(50., 205., 0.);
@@ -363,14 +362,16 @@ fn thruster_power(
                 let current_power = current_acceleration / max_acceleration;
 
                 // UP is 0, LEFT is PI/2, DOWN is PI, RIGHT is 3/2PI, UP is 2PI
-                let ship_angle =  transform.rotation.to_axis_angle().1;
-                let accel_angle =  Vec2::Y.angle_between(acceleration.linear.truncate()) + PI;
-                let accel_angle = (2. * PI - (ship_angle - accel_angle).abs()).min((ship_angle - accel_angle).abs());
-                let alignement = (1. / (accel_angle / PI - thruster.angle / PI).abs() - 1.5).clamp(0., 5.);
+                let ship_angle = transform.rotation.to_axis_angle().1;
+                let accel_angle = Vec2::Y.angle_between(acceleration.linear.truncate()) + PI;
+                let accel_angle = (2. * PI - (ship_angle - accel_angle).abs())
+                    .min((ship_angle - accel_angle).abs());
+                let alignement =
+                    (1. / (accel_angle / PI - thruster.angle / PI).abs() - 1.5).clamp(0., 5.);
 
-                println!("{:?}", alignement);
-
-                effect.set_spawner(Spawner::rate((current_power * alignement * thruster.size * 200.).into()))
+                effect.set_spawner(Spawner::rate(
+                    (current_power * alignement * thruster.size * 200.).into(),
+                ))
             }
         }
     }
